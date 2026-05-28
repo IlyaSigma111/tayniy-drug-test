@@ -10,9 +10,9 @@ const AdminPanel = () => {
   const { currentUser } = useAuth();
   const [users, setUsers] = useState([]);
   const [letters, setLetters] = useState([]);
-  const [distributionStatus, setDistributionStatus] = useState(null);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [runningDistribution, setRunningDistribution] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [password, setPassword] = useState('');
   const [authenticated, setAuthenticated] = useState(
@@ -50,14 +50,14 @@ const AdminPanel = () => {
       setUsers(usersList);
       setLetters(lettersList);
 
-      const completedProfiles = usersList.filter(u => u.profileCompleted);
-      const assignedUsers = usersList.filter(u => u.assignedTo);
+      const completed = usersList.filter(u => u.profileCompleted);
+      const withAssignment = usersList.filter(u => u.assignedTo);
 
-      setDistributionStatus({
-        totalUsers: usersList.length,
-        completedProfiles: completedProfiles.length,
-        assigned: assignedUsers.length,
-        totalLetters: lettersList.length
+      setStats({
+        total: usersList.length,
+        completed: completed.length,
+        assigned: withAssignment.length,
+        letters: lettersList.length
       });
     } catch (err) {
       setMessage('Ошибка загрузки данных: ' + err.message);
@@ -65,77 +65,107 @@ const AdminPanel = () => {
     setLoading(false);
   };
 
-  const shuffleArray = (array) => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
+  const shuffle = (arr) => {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      [a[i], a[j]] = [a[j], a[i]];
     }
-    return shuffled;
+    return a;
   };
 
-  const hasMutualPairs = (shuffled) => {
-    for (let i = 0; i < shuffled.length; i++) {
-      const giver = shuffled[i];
-      const receiver = shuffled[(i + 1) % shuffled.length];
-      for (let j = 0; j < shuffled.length; j++) {
-        if (shuffled[j].id === receiver.id) {
-          const receiverTarget = shuffled[(j + 1) % shuffled.length];
-          if (receiverTarget.id === giver.id) return true;
+  const hasMutual = (arr) => {
+    for (let i = 0; i < arr.length; i++) {
+      const giver = arr[i];
+      const receiver = arr[(i + 1) % arr.length];
+      for (let j = 0; j < arr.length; j++) {
+        if (arr[j].id === receiver.id) {
+          if (arr[(j + 1) % arr.length].id === giver.id) return true;
         }
       }
     }
     return false;
   };
 
-  const runDistribution = async () => {
-    const toAssign = users.filter(u => u.profileCompleted);
-    if (toAssign.length < 2) {
-      setMessage('Недостаточно участников для распределения (минимум 2)');
+  const tryDistribute = (participants) => {
+    let attempts = 0;
+    let result;
+    do {
+      result = shuffle(participants);
+      attempts++;
+    } while (hasMutual(result) && attempts < 100);
+    return result;
+  };
+
+  // Режим 1: полное перераспределение (все с анкетой)
+  const runFullDistribution = async () => {
+    const pool = users.filter(u => u.profileCompleted);
+    if (pool.length < 2) {
+      setMessage('Недостаточно участников (минимум 2)');
       return;
     }
 
-    if (toAssign.length === 2) {
-      const canDirect = window.confirm(
-        'Всего 2 участника. Это создаст взаимное назначение (A↔B). Продолжить?'
-      );
-      if (!canDirect) return;
-    }
+    if (pool.length === 2 && !window.confirm('Всего 2 участника. Будут назначены друг на друга. Продолжить?')) return;
+    if (pool.length > 2 && stats.assigned > 0 && !window.confirm('Некоторые участники уже имеют назначения. Перераспределить всех?')) return;
 
-    setRunningDistribution(true);
+    setBusy(true);
     setMessage('');
 
     try {
-      let shuffled;
-      let attempts = 0;
-      do {
-        shuffled = shuffleArray(toAssign);
-        attempts++;
-      } while (hasMutualPairs(shuffled) && attempts < 50);
-
-      const updates = [];
-      for (let i = 0; i < shuffled.length; i++) {
-        const giver = shuffled[i];
+      const shuffled = tryDistribute(pool);
+      const updates = shuffled.map((giver, i) => {
         const receiver = shuffled[(i + 1) % shuffled.length];
-        updates.push(
-          updateDoc(doc(db, 'users', giver.id), {
-            assignedTo: receiver.id,
-            distributionLocked: true
-          })
-        );
-      }
-
+        return updateDoc(doc(db, 'users', giver.id), {
+          assignedTo: receiver.id,
+          distributionLocked: true
+        });
+      });
       await Promise.all(updates);
-      setMessage(`Распределение выполнено! Назначено ${shuffled.length} пар.`);
+      setMessage(`Полное перераспределение! ${shuffled.length} пар.`);
       loadData();
     } catch (err) {
-      setMessage('Ошибка распределения: ' + err.message);
+      setMessage('Ошибка: ' + err.message);
     }
-    setRunningDistribution(false);
+    setBusy(false);
+  };
+
+  // Режим 2: добавить новичков (только у кого нет назначения)
+  const addNewcomers = async () => {
+    const unassigned = users.filter(u => u.profileCompleted && !u.assignedTo);
+    const alreadyAssigned = users.filter(u => u.assignedTo);
+
+    if (unassigned.length === 0) {
+      setMessage('Нет новых участников для распределения');
+      return;
+    }
+
+    // Берём уже назначенных и новичков, перетасовываем только новичков,
+    // потом вставляем их в "дырки" существующего цикла
+    setBusy(true);
+    setMessage('');
+
+    try {
+      const pool = [...alreadyAssigned, ...unassigned];
+      const shuffled = tryDistribute(pool);
+      const updates = shuffled.map((giver, i) => {
+        const receiver = shuffled[(i + 1) % shuffled.length];
+        return updateDoc(doc(db, 'users', giver.id), {
+          assignedTo: receiver.id,
+          distributionLocked: true
+        });
+      });
+      await Promise.all(updates);
+      setMessage(`Добавлено ${unassigned.length} новых участников. Всего ${shuffled.length} пар.`);
+      loadData();
+    } catch (err) {
+      setMessage('Ошибка: ' + err.message);
+    }
+    setBusy(false);
   };
 
   const resetDistribution = async () => {
-    if (!window.confirm('Вы уверены? Это сбросит все назначения!')) return;
+    if (!window.confirm('Сбросить ВСЕ назначения?')) return;
+    setBusy(true);
     setMessage('');
     try {
       const updates = users
@@ -145,30 +175,29 @@ const AdminPanel = () => {
           distributionLocked: false
         }));
       await Promise.all(updates);
-      setMessage('Распределение сброшено');
+      setMessage('Все назначения сброшены');
       loadData();
     } catch (err) {
       setMessage('Ошибка сброса: ' + err.message);
     }
+    setBusy(false);
   };
+
+  const unassignedCount = users.filter(u => u.profileCompleted && !u.assignedTo).length;
 
   if (loading) return <div className="loading">Загрузка...</div>;
 
   if (!authenticated) {
     return (
       <div className="page-content">
-        <h1 style={{ color: '#e2e8f0', marginBottom: 24 }}>Административная панель</h1>
+        <h1 className="page-title">Административная панель</h1>
         <form onSubmit={handlePasswordSubmit} className="password-form">
           <h2>Введите пароль</h2>
           {message && <div className="error-message">{message}</div>}
           <div className="form-group">
-            <input
-              type="password"
-              value={password}
+            <input type="password" value={password}
               onChange={(e) => { setPassword(e.target.value); setMessage(''); }}
-              placeholder="Пароль администратора"
-              autoFocus
-            />
+              placeholder="Пароль администратора" autoFocus />
           </div>
           <button type="submit" className="btn-primary">Войти</button>
         </form>
@@ -178,7 +207,7 @@ const AdminPanel = () => {
 
   return (
     <div className="page-content">
-      <h1 style={{ color: '#e2e8f0', marginBottom: 24 }}>Административная панель</h1>
+      <h1 className="page-title">Административная панель</h1>
 
       {message && (
         <div className={message.includes('Ошибка') || message.includes('Неверный') ? 'error-message' : 'success-message'}>
@@ -188,38 +217,38 @@ const AdminPanel = () => {
 
       <div className="admin-stats">
         <div className="stat-card">
-          <h3>Всего пользователей</h3>
-          <p className="stat-number">{distributionStatus?.totalUsers}</p>
+          <h3>Всего</h3>
+          <p className="stat-number">{stats?.total}</p>
         </div>
         <div className="stat-card">
-          <h3>Заполнили анкету</h3>
-          <p className="stat-number">{distributionStatus?.completedProfiles}</p>
+          <h3>Анкеты</h3>
+          <p className="stat-number">{stats?.completed}</p>
         </div>
         <div className="stat-card">
-          <h3>Распределено</h3>
-          <p className="stat-number">{distributionStatus?.assigned}</p>
+          <h3>Назначено</h3>
+          <p className="stat-number">{stats?.assigned}</p>
         </div>
         <div className="stat-card">
-          <h3>Писем отправлено</h3>
-          <p className="stat-number">{distributionStatus?.totalLetters}</p>
+          <h3>Писем</h3>
+          <p className="stat-number">{stats?.letters}</p>
         </div>
       </div>
 
       <div className="admin-actions">
-        <button
-          onClick={runDistribution}
-          className="btn-primary"
-          disabled={runningDistribution}
-        >
-          {runningDistribution ? 'Распределение...' : 'Запустить распределение'}
+        <button onClick={runFullDistribution} className="btn-primary" disabled={busy}>
+          {busy ? 'Работаю...' : stats?.assigned > 0 ? 'Перераспределить всех' : 'Распределить'}
         </button>
-        <button onClick={resetDistribution} className="btn-danger">
-          Сбросить распределение
+        <button onClick={addNewcomers} className="btn-secondary"
+          disabled={busy || unassignedCount === 0} style={{ marginBottom: 0 }}>
+          + Добавить новичков ({unassignedCount})
+        </button>
+        <button onClick={resetDistribution} className="btn-danger" disabled={busy}>
+          Сбросить всё
         </button>
       </div>
 
       <div className="users-table-container">
-        <h2>Все пользователи</h2>
+        <h2>Пользователи</h2>
         <table className="users-table">
           <thead>
             <tr>
@@ -234,10 +263,10 @@ const AdminPanel = () => {
             {users.map(user => (
               <tr key={user.id}>
                 <td>{user.fullName}</td>
-                <td>{user.email}</td>
-                <td>{user.region || '-'}</td>
+                <td style={{ fontSize: 13 }}>{user.email}</td>
+                <td>{user.region || '—'}</td>
                 <td>{user.profileCompleted ? '✓' : '✗'}</td>
-                <td>{user.assignedTo ? '✓' : '-'}</td>
+                <td>{user.assignedTo ? '✓' : '—'}</td>
               </tr>
             ))}
           </tbody>

@@ -14,13 +14,18 @@ const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
+const actionCodeSettings = {
+  url: `${window.location.origin}/tayniy-drug/#/login`,
+  handleCodeInApp: false
+};
+
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const signup = async (email, password, fullName) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    await sendEmailVerification(userCredential.user);
+    await sendEmailVerification(userCredential.user, actionCodeSettings);
     await setDoc(doc(db, 'users', userCredential.user.uid), {
       uid: userCredential.user.uid,
       email,
@@ -32,6 +37,12 @@ export const AuthProvider = ({ children }) => {
       createdAt: new Date().toISOString()
     });
     return userCredential;
+  };
+
+  const resendVerification = async () => {
+    if (currentUser && !currentUser.emailVerified) {
+      await sendEmailVerification(currentUser, actionCodeSettings);
+    }
   };
 
   const login = (email, password) => {
@@ -59,7 +70,7 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
+      setCurrentUser(user ? { ...user } : null);
       setLoading(false);
     });
     return unsubscribe;
@@ -73,6 +84,7 @@ export const AuthProvider = ({ children }) => {
     resetPassword,
     updateProfile,
     getUserProfile,
+    resendVerification,
     emailVerified: currentUser?.emailVerified
   };
 

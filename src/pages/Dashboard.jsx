@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link, Routes, Route } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import Profile from './Profile';
 import Letters from './Letters';
@@ -13,15 +13,17 @@ const Dashboard = () => {
   const { currentUser, logout, getUserProfile } = useAuth();
   const [userProfile, setUserProfile] = useState(null);
   const [assignedRecipient, setAssignedRecipient] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const unsubLetters = useRef(null);
 
   const isAdmin = sessionStorage.getItem('admin_auth') === 'true';
 
   useEffect(() => {
-    const loadData = async () => {
-      if (!currentUser) return;
+    if (!currentUser) return;
 
+    const loadData = async () => {
       const profile = await getUserProfile(currentUser.uid);
       setUserProfile(profile);
 
@@ -31,13 +33,27 @@ const Dashboard = () => {
           setAssignedRecipient({ id: profile.assignedTo, ...recipientDoc.data() });
         }
       }
-
       setLoading(false);
     };
     loadData();
+
+    const q = query(
+      collection(db, 'letters'),
+      where('to', '==', currentUser.uid),
+      where('read', '==', false)
+    );
+    unsubLetters.current = onSnapshot(q, (snap) => {
+      setUnreadCount(snap.size);
+    });
+
+    return () => {
+      if (unsubLetters.current) unsubLetters.current();
+    };
   }, [currentUser]);
 
   const handleLogout = async () => {
+    if (!window.confirm('Вы уверены, что хотите выйти?')) return;
+    sessionStorage.removeItem('admin_auth');
     await logout();
     navigate('/login');
   };
@@ -53,7 +69,10 @@ const Dashboard = () => {
         <nav className="sidebar-nav">
           <Link to="/dashboard" className="nav-link">Главная</Link>
           <Link to="/dashboard/profile" className="nav-link">Моя анкета</Link>
-          <Link to="/dashboard/letters" className="nav-link">Входящие письма</Link>
+          <Link to="/dashboard/letters" className="nav-link">
+            Входящие письма
+            {unreadCount > 0 && <span className="unread-badge" style={{ marginLeft: 8 }}>{unreadCount}</span>}
+          </Link>
           {assignedRecipient && (
             <Link to="/dashboard/write-letter" className="nav-link highlight">Написать письмо</Link>
           )}

@@ -168,6 +168,11 @@
   box-shadow: 0 0 12px var(--accent-glow);
 }
 
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-danger {
   padding: 14px 20px;
   background: transparent;
@@ -390,6 +395,13 @@
 /* ========== DASHBOARD HOME ========== */
 .dashboard-home {
   max-width: 900px;
+}
+
+.page-title {
+  color: var(--text-primary);
+  margin-bottom: 24px;
+  font-size: 28px;
+  font-weight: 700;
 }
 
 .dashboard-home h1 {

@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { collection, query, where, getDocs, updateDoc, doc, orderBy } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import '../styles/App.css';
 
@@ -12,11 +12,10 @@ const Letters = () => {
   const [selectedLetter, setSelectedLetter] = useState(null);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    loadLetters();
-  }, [currentUser]);
+  const unsubReceived = useRef(null);
+  const unsubSent = useRef(null);
 
-  const loadLetters = async () => {
+  useEffect(() => {
     if (!currentUser) return;
 
     const receivedQuery = query(
@@ -31,28 +30,36 @@ const Letters = () => {
       orderBy('createdAt', 'desc')
     );
 
-    try {
-      const [receivedSnap, sentSnap] = await Promise.all([
-        getDocs(receivedQuery),
-        getDocs(sentQuery)
-      ]);
+    unsubReceived.current = onSnapshot(receivedQuery,
+      (snap) => {
+        const received = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setLetters(received);
+        setLoading(false);
+      },
+      (err) => {
+        setError('Ошибка загрузки писем. Возможно, нужно создать индексы в Firebase Console.');
+        console.error('Ошибка получения писем:', err);
+        setLoading(false);
+      }
+    );
 
-      const received = receivedSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const sent = sentSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    unsubSent.current = onSnapshot(sentQuery,
+      (snap) => {
+        const sent = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setSentLetters(sent);
+      },
+      (err) => console.error('Ошибка получения отправленных:', err)
+    );
 
-      setLetters(received);
-      setSentLetters(sent);
-    } catch (err) {
-      setError('Ошибка загрузки писем. Возможно, нужно создать индексы в Firebase Console.');
-      console.error('Ошибка загрузки писем:', err);
-    }
-    setLoading(false);
-  };
+    return () => {
+      if (unsubReceived.current) unsubReceived.current();
+      if (unsubSent.current) unsubSent.current();
+    };
+  }, [currentUser]);
 
   const markAsRead = async (letterId) => {
     try {
       await updateDoc(doc(db, 'letters', letterId), { read: true });
-      setLetters(letters.map(l => l.id === letterId ? { ...l, read: true } : l));
     } catch (err) {
       console.error('Ошибка обновления:', err);
     }
@@ -69,11 +76,8 @@ const Letters = () => {
     if (!timestamp) return 'Неизвестно';
     const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
     return date.toLocaleDateString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
     });
   };
 
@@ -83,33 +87,24 @@ const Letters = () => {
     return (
       <div className="page-content">
         <button onClick={() => setSelectedLetter(null)} className="btn-secondary">← Назад</button>
-
         <div className="letter-detail">
           <h2>Письмо от тайного друга</h2>
           <p className="letter-date">Получено: {formatDate(selectedLetter.createdAt)}</p>
-
-          <div className="letter-text">
-            {selectedLetter.text}
-          </div>
-
+          <div className="letter-text">{selectedLetter.text}</div>
           {selectedLetter.attachments?.length > 0 && (
             <div className="letter-attachments">
               <h3>Вложения:</h3>
               <div className="attachments-grid">
-                {selectedLetter.attachments.map((file, index) => (
-                  <div key={index} className="attachment-preview">
+                {selectedLetter.attachments.map((file, i) => (
+                  <div key={i} className="attachment-preview">
                     {file.type === 'image' ? (
                       <img src={file.url} alt={file.name} />
                     ) : file.type === 'video' ? (
-                      <video controls src={file.url}></video>
+                      <video controls src={file.url} />
                     ) : (
-                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="btn-download">
-                        Открыть ссылку
-                      </a>
+                      <a href={file.url} target="_blank" rel="noopener noreferrer" className="btn-download">Открыть ссылку</a>
                     )}
-                    <a href={file.url} target="_blank" rel="noopener noreferrer" className="btn-download">
-                      {file.type === 'link' ? 'Перейти' : 'Открыть'}
-                    </a>
+                    <a href={file.url} target="_blank" rel="noopener noreferrer" className="btn-download">Открыть</a>
                   </div>
                 ))}
               </div>
@@ -123,7 +118,6 @@ const Letters = () => {
   return (
     <div className="page-content">
       <h1 style={{ color: '#e2e8f0', marginBottom: 20 }}>Мои письма</h1>
-
       {error && <div className="warning-banner">{error}</div>}
 
       <div className="letters-section">
