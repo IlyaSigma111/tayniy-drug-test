@@ -18,9 +18,10 @@
   </div>
   <script>
     (function() {
-      var segment = window.location.pathname.replace(/^\/tayniy-drug\/?/, '');
-      var hash = segment ? '/tayniy-drug/#/' + segment : '/tayniy-drug/#/';
-      setTimeout(function() { window.location.replace(hash); }, 100);
+      var parts = window.location.pathname.split('/').filter(Boolean);
+      var repo = parts[0];
+      var segment = parts.slice(1).join('/');
+      setTimeout(function() { window.location.replace('/' + repo + '/#/' + segment); }, 100);
     })();
   </script>
 </body>
