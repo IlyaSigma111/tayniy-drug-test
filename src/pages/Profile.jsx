@@ -9,8 +9,7 @@ const Profile = () => {
   const [formData, setFormData] = useState({
     fullName: '',
     region: '',
-    bio: '',
-    profilePhoto: ''
+    bio: ''
   });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -25,8 +24,7 @@ const Profile = () => {
         setFormData({
           fullName: data.fullName || '',
           region: data.region || '',
-          bio: data.bio || '',
-          profilePhoto: data.profilePhoto || ''
+          bio: data.bio || ''
         });
         setProfileLocked(!!data.distributionLocked);
       }
@@ -113,21 +111,6 @@ const Profile = () => {
           <span className="char-count">{formData.bio.length} / 2000</span>
         </div>
 
-        <div className="form-group">
-          <label>Фото (ссылка Яндекс.Диск)</label>
-          <input
-            type="url"
-            value={formData.profilePhoto}
-            onChange={(e) => setFormData({ ...formData, profilePhoto: e.target.value })}
-            placeholder="https://disk.yandex.ru/..."
-            disabled={profileLocked}
-          />
-          {formData.profilePhoto && (
-            <div className="photo-preview">
-              <img src={formData.profilePhoto} alt="Фото профиля" />
-            </div>
-          )}
-        </div>
 
         {!profileLocked && (
           <button type="submit" className="btn-primary" disabled={saving}>

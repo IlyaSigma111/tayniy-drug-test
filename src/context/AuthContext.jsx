@@ -32,7 +32,6 @@ export const AuthProvider = ({ children }) => {
       fullName,
       region: '',
       bio: '',
-      profilePhoto: '',
       profileCompleted: false,
       createdAt: new Date().toISOString()
     });

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { createDistributionNotification } from '../lib/notifications';
 import '../styles/App.css';
 
 const ADMIN_PASSWORD = 'мухоморпоганка';
@@ -121,6 +122,9 @@ const AdminPanel = () => {
         });
       });
       await Promise.all(updates);
+      shuffled.forEach((giver) => {
+        createDistributionNotification(giver.id);
+      });
       setMessage(`Полное перераспределение! ${shuffled.length} пар.`);
       loadData();
     } catch (err) {
@@ -155,6 +159,9 @@ const AdminPanel = () => {
         });
       });
       await Promise.all(updates);
+      shuffled.forEach((giver) => {
+        createDistributionNotification(giver.id);
+      });
       setMessage(`Добавлено ${unassigned.length} новых участников. Всего ${shuffled.length} пар.`);
       loadData();
     } catch (err) {
@@ -245,6 +252,12 @@ const AdminPanel = () => {
         <button onClick={resetDistribution} className="btn-danger" disabled={busy}>
           Сбросить всё
         </button>
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <a href="#/dashboard/seed" className="btn-secondary" style={{ textDecoration: 'none', display: 'inline-block' }}>
+          🧪 Seed Test
+        </a>
       </div>
 
       <div className="users-table-container">

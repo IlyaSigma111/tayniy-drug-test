@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { createLetterNotification } from '../lib/notifications';
 import '../styles/App.css';
 
 const MAX_LINKS = 5;
@@ -84,6 +85,8 @@ const WriteLetter = ({ recipient }) => {
         read: false,
         createdAt: serverTimestamp()
       });
+
+      createLetterNotification(recipient.id);
 
       navigate('/dashboard/letters');
     } catch (err) {
